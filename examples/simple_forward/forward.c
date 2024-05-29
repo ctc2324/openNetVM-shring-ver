@@ -48,6 +48,7 @@
 #include <string.h>
 #include <sys/queue.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 
 #include <rte_common.h>
 #include <rte_ip.h>
@@ -62,6 +63,11 @@
 static uint32_t print_delay = 1000000;
 
 static uint32_t destination;
+static int num_sh_entries = 0;
+static struct {
+        struct in_addr ip;
+        uint32_t destination;
+} sh_entries[10];
 
 /*
  * Print a usage message
@@ -69,21 +75,27 @@ static uint32_t destination;
 static void
 usage(const char *progname) {
         printf("Usage:\n");
-        printf("%s [EAL args] -- [NF_LIB args] -- -d <destination> -p <print_delay>\n", progname);
+        printf("%s [EAL args] -- [NF_LIB args] -- -d <destination> -p <print_delay> -sh <ip1> <nf1> <ip2> <nf2> ...\n", progname);
         printf("%s -F <CONFIG_FILE.json> [EAL args] -- [NF_LIB args] -- [NF args]\n\n", progname);
         printf("Flags:\n");
-        printf(" - `-d <dst>`: destination service ID to foward to\n");
+        printf(" - `-d <dst>`: destination service ID to forward to\n");
         printf(" - `-p <print_delay>`: number of packets between each print, e.g. `-p 1` prints every packets.\n");
+        printf(" - `-sh <ip1> <nf1> <ip2> <nf2> ...`: specify source IP and destination NF pairs\n");
 }
 
+
+/*
+ * Parse the application arguments.
+ */
 /*
  * Parse the application arguments.
  */
 static int
 parse_app_args(int argc, char *argv[], const char *progname) {
         int c, dst_flag = 0;
+        char *endptr;
 
-        while ((c = getopt(argc, argv, "d:p:")) != -1) {
+        while ((c = getopt(argc, argv, "d:p:s:")) != -1) {
                 switch (c) {
                         case 'd':
                                 destination = strtoul(optarg, NULL, 10);
@@ -91,6 +103,28 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                                 break;
                         case 'p':
                                 print_delay = strtoul(optarg, NULL, 10);
+                                break;
+                        case 's':
+                                while (optind < argc && argv[optind][0] != '-') {
+                                        if (num_sh_entries >= 10) {
+                                                RTE_LOG(INFO, APP, "Too many -sh entries, maximum is 10\n");
+                                                return -1;
+                                        }
+                                        if (inet_aton(argv[optind], &sh_entries[num_sh_entries].ip) == 0) {
+                                                RTE_LOG(INFO, APP, "Invalid IP address %s\n", argv[optind]);
+                                                return -1;
+                                        }
+                                        optind++;
+                                        if (optind < argc) {
+                                                sh_entries[num_sh_entries].destination = strtoul(argv[optind], &endptr, 10);
+                                                if (*endptr != '\0') {
+                                                        RTE_LOG(INFO, APP, "Invalid NF destination %s\n", argv[optind]);
+                                                        return -1;
+                                                }
+                                                num_sh_entries++;
+                                        }
+                                        optind++;
+                                }
                                 break;
                         case '?':
                                 usage(progname);
@@ -109,13 +143,15 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                 }
         }
 
-        if (!dst_flag) {
-                RTE_LOG(INFO, APP, "Simple Forward NF requires destination flag -d.\n");
+        if (!dst_flag && num_sh_entries == 0) {
+                RTE_LOG(INFO, APP, "Simple Forward NF requires destination flag -d or -sh.\n");
                 return -1;
         }
 
         return optind;
 }
+
+
 
 /*
  * This function displays stats. It uses ANSI terminal codes to clear
@@ -154,15 +190,33 @@ static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                __attribute__((unused)) struct onvm_nf_local_ctx *nf_local_ctx) {
         static uint32_t counter = 0;
+        struct rte_ipv4_hdr *ip_hdr;
+        int i;
+
         if (++counter == print_delay) {
                 do_stats_display(pkt);
                 counter = 0;
         }
 
+        ip_hdr = onvm_pkt_ipv4_hdr(pkt);
+        if (ip_hdr != NULL) {
+                for (i = 0; i < num_sh_entries; i++) {
+                        if (ip_hdr->src_addr == sh_entries[i].ip.s_addr) {
+                                meta->destination = sh_entries[i].destination;
+                                break;
+                        }
+                }
+                if (i == num_sh_entries) {
+                        meta->destination = destination;
+                }
+        } else {
+                meta->destination = destination;
+        }
+
         meta->action = ONVM_NF_ACTION_TONF;
-        meta->destination = destination;
         return 0;
 }
+
 
 int
 main(int argc, char *argv[]) {

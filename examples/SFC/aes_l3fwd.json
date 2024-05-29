@@ -1,0 +1,17 @@
+{
+    "globals": [
+        {
+            "directory": "SFC/log/sfc2_output_files"
+        }
+    ],
+    "aes_decrypt": [
+        {
+            "parameters": "2 -d 3"
+        }
+    ],
+    "l3fwd": [
+        {
+            "parameters": "3"
+        }
+    ]
+}

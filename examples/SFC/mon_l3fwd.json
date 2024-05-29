@@ -1,0 +1,17 @@
+{
+    "globals": [
+        {
+            "directory": "SFC/log/sfc1_output_files"
+        }
+    ],
+    "simple_forward": [
+        {
+            "parameters": "1 -s 192.168.1.100 2 192.168.1.101 4"
+        }
+    ],
+    "l3fwd": [
+        {
+            "parameters": "4"
+        }
+    ]
+}

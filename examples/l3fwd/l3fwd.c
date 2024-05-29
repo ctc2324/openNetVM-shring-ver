@@ -243,6 +243,9 @@ l3fwd_initialize_dst(struct state_info *stats) {
                         RTE_ETHER_LOCAL_ADMIN_ADDR + ((uint64_t)ports->id[i] << 40);
                 *(uint64_t *)(stats->val_eth + ports->id[i]) = stats->dest_eth_addr[ports->id[i]];
         }
+        uint64_t mac_addr = 0xea5a219f36a0ULL; // a0:36:9f:21:5a:ea
+        stats->dest_eth_addr[1] = mac_addr;
+        *(uint64_t *)(stats->val_eth + 1) = mac_addr;
 }
 
 /* This function frees all allocated data structures and hash tables. */

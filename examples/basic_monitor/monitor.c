@@ -35,7 +35,7 @@
  *   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * monitor.c - an example using onvm. Print a message each p package received
+ * monitor.c - an example using onvm. Print a message each p package received and forwards packets to a DST NF
  ********************************************************************/
 
 #include <errno.h>
@@ -61,6 +61,7 @@
 
 /* number of package between each print */
 static uint32_t print_delay = 1000000;
+static uint32_t destination;
 
 static uint32_t total_packets = 0;
 static uint64_t last_cycle;
@@ -75,10 +76,11 @@ extern struct port_info *ports;
 static void
 usage(const char *progname) {
         printf("Usage:\n");
-        printf("%s [EAL args] -- [NF_LIB args] -- -p <print_delay>\n", progname);
+        printf("%s [EAL args] -- [NF_LIB args] -- -d <destination> -p <print_delay>\n", progname);
         printf("%s -F <CONFIG_FILE.json> [EAL args] -- [NF_LIB args] -- [NF args]\n\n", progname);
         printf("Flags:\n");
-        printf(" - `-p <print_delay>`: number of packets between each print, e.g. `-p 1` prints every packets.\n");
+        printf(" - `-d <dst>`: destination service ID to foward to\n");
+        printf(" - `-p <print_delay>`: number of packets between each print, e.g. -p 1 prints every packets.\n");
 }
 
 /*
@@ -86,16 +88,22 @@ usage(const char *progname) {
  */
 static int
 parse_app_args(int argc, char *argv[], const char *progname) {
-        int c;
+        int c, dst_flag = 0;
 
-        while ((c = getopt(argc, argv, "p:")) != -1) {
+        while ((c = getopt(argc, argv, "d:p:")) != -1) {
                 switch (c) {
+                        case 'd':
+                                destination = strtoul(optarg, NULL, 10);
+                                dst_flag = 1;
+                                break;
                         case 'p':
                                 print_delay = strtoul(optarg, NULL, 10);
                                 RTE_LOG(INFO, APP, "print_delay = %d\n", print_delay);
                                 break;
                         case '?':
                                 usage(progname);
+                                if (optopt == 'd')
+                                        RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
                                 if (optopt == 'p')
                                         RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
                                 else if (isprint(optopt))
@@ -108,6 +116,12 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                                 return -1;
                 }
         }
+
+        if (!dst_flag) {
+                RTE_LOG(INFO, APP, "Simple Forward NF requires destination flag -d.\n");
+                return -1;
+        }
+
         return optind;
 }
 
@@ -167,12 +181,12 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                 counter = 0;
         }
 
-        meta->action = ONVM_NF_ACTION_OUT;
-        meta->destination = pkt->port;
+        meta->action = ONVM_NF_ACTION_TONF;
+        meta->destination = destination;
 
-        if (onvm_pkt_swap_src_mac_addr(pkt, meta->destination, ports) != 0) {
-                RTE_LOG(INFO, APP, "ERROR: Failed to swap src mac with dst mac!\n");
-        }
+        // if (onvm_pkt_swap_src_mac_addr(pkt, meta->destination, ports) != 0) {
+        //         RTE_LOG(INFO, APP, "ERROR: Failed to swap src mac with dst mac!\n");
+        // }
         return 0;
 }
 
