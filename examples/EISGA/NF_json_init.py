@@ -3,9 +3,9 @@ import json
 vnf_mapping = {
     0: "aes_decrypt",
     1: "flow_tracker",
-    2: "basic_monitor",
+    2: "l3fwd",
     3: "simple_forward",
-    4: "l3fwd"
+    4: "basic_monitor"
 }
 
 with open("network.txt", "r") as file:

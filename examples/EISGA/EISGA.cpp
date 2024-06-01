@@ -296,7 +296,7 @@ void removeDuplicateNext() {
 
 // Function to remove duplicate next pointers in allNodes
 void removeUnuseNode() {
-    for (int i = 0; i < nodeCount; i++) {
+    for (int i = 0; i < nodeCount - 2; i++) {
         SFCNode* current = allNodes[i];
         if (current == NULL) continue;
         
@@ -374,7 +374,7 @@ void updateNextPointers(int top) {
 void printNodeInfo() {
     printf("Node Information:\n");
     for (int i = 0; i < nodeCount; i++) {
-        printf("Node %d-Address: %p, vnfID: %d,reliability: %f ,next: ", i, (void*)allNodes[i], allNodes[i]->vnfID, allNodes[i]->reliability);
+        printf("Node %d-Address: %p, vnfID: %d,reliability: %f sfccnt = %d,next: ", i, (void*)allNodes[i], allNodes[i]->vnfID, allNodes[i]->reliability,allNodes[i]->SFC_cnt);
         for (int j = 0; j < MAX_NODES && allNodes[i]->next[j]; j++) {
             printf("%p", (void*)allNodes[i]->next[j]);
             if (allNodes[i]->next[j + 1] != NULL) {
@@ -547,6 +547,15 @@ int findnext(int NFcnt[],SFCNode* next){
             return i;
         }
     }
+    return -1;
+}
+
+int findremove(SFCNode* next){
+    for(int i = 0;i < nodeCount;i++){
+        if(next == removeNode[i]){
+            return i;
+        }
+    }
     return 0;
 }
 
@@ -611,7 +620,16 @@ int main() {
         fprintf(network_file,"%d,%d,",NFcnt[i],allNodes[i]->vnfID);
         for (int j = 0; j < MAX_NODES && allNodes[i]->next[j]; j++) {
             nextIndex = findnext(NFcnt,allNodes[i]->next[j]);
-            fprintf(network_file,"192.168.1.10%d %d", allNodes[nextIndex]->SFC_cnt, NFcnt[nextIndex]);
+            int nextsfc = -1;
+            if(nextIndex == -1){
+                nextIndex = findremove(allNodes[i]->next[j]);
+                nextsfc = removeNode[nextIndex]->SFC_cnt;
+            }
+            else{
+                nextsfc = allNodes[nextIndex]->SFC_cnt;
+            }
+            printf("##%d,%d\n",nextIndex,i);
+            fprintf(network_file,"192.168.1.10%d %d", nextsfc, NFcnt[nextIndex]);
             if (allNodes[i]->next[j + 1] != NULL) {
                 fprintf(network_file,",");
             }
