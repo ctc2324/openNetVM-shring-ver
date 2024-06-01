@@ -48,6 +48,7 @@
 #include <string.h>
 #include <sys/queue.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 
 #include <rte_common.h>
 #include <rte_cycles.h>
@@ -67,6 +68,13 @@ static uint32_t total_packets = 0;
 static uint64_t last_cycle;
 static uint64_t cur_cycles;
 
+static uint32_t destination;
+static int num_sh_entries = 0;
+static struct {
+        struct in_addr ip;
+        uint32_t destination;
+} sh_entries[10];
+
 /* shared data structure containing host port info */
 extern struct port_info *ports;
 
@@ -81,6 +89,7 @@ usage(const char *progname) {
         printf("Flags:\n");
         printf(" - `-d <dst>`: destination service ID to foward to\n");
         printf(" - `-p <print_delay>`: number of packets between each print, e.g. -p 1 prints every packets.\n");
+        printf(" - `-sh <ip1> <nf1> <ip2> <nf2> ...`: specify source IP and destination NF pairs\n");
 }
 
 /*
@@ -89,8 +98,9 @@ usage(const char *progname) {
 static int
 parse_app_args(int argc, char *argv[], const char *progname) {
         int c, dst_flag = 0;
+        char *endptr;
 
-        while ((c = getopt(argc, argv, "d:p:")) != -1) {
+        while ((c = getopt(argc, argv, "d:p:s:")) != -1) {
                 switch (c) {
                         case 'd':
                                 destination = strtoul(optarg, NULL, 10);
@@ -98,13 +108,34 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                                 break;
                         case 'p':
                                 print_delay = strtoul(optarg, NULL, 10);
-                                RTE_LOG(INFO, APP, "print_delay = %d\n", print_delay);
+                                break;
+                        case 's':
+                                while (optind < argc && argv[optind][0] != '-') {
+                                        if (num_sh_entries >= 10) {
+                                                RTE_LOG(INFO, APP, "Too many -sh entries, maximum is 10\n");
+                                                return -1;
+                                        }
+                                        if (inet_aton(argv[optind], &sh_entries[num_sh_entries].ip) == 0) {
+                                                RTE_LOG(INFO, APP, "Invalid IP address %s\n", argv[optind]);
+                                                return -1;
+                                        }
+                                        optind++;
+                                        if (optind < argc) {
+                                                sh_entries[num_sh_entries].destination = strtoul(argv[optind], &endptr, 10);
+                                                if (*endptr != '\0') {
+                                                        RTE_LOG(INFO, APP, "Invalid NF destination %s\n", argv[optind]);
+                                                        return -1;
+                                                }
+                                                num_sh_entries++;
+                                        }
+                                        optind++;
+                                }
                                 break;
                         case '?':
                                 usage(progname);
                                 if (optopt == 'd')
                                         RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
-                                if (optopt == 'p')
+                                else if (optopt == 'p')
                                         RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
                                 else if (isprint(optopt))
                                         RTE_LOG(INFO, APP, "Unknown option `-%c'.\n", optopt);
@@ -117,8 +148,8 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                 }
         }
 
-        if (!dst_flag) {
-                RTE_LOG(INFO, APP, "Simple Forward NF requires destination flag -d.\n");
+        if (!dst_flag && num_sh_entries == 0) {
+                RTE_LOG(INFO, APP, "Simple Forward NF requires destination flag -d or -sh.\n");
                 return -1;
         }
 
@@ -175,19 +206,35 @@ static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                __attribute__((unused)) struct onvm_nf_local_ctx *nf_local_ctx) {
         static uint32_t counter = 0;
+        struct rte_ipv4_hdr *ip_hdr;
+        int i;
         total_packets++;
         if (++counter == print_delay) {
                 do_stats_display(pkt);
                 counter = 0;
         }
 
+        ip_hdr = onvm_pkt_ipv4_hdr(pkt);
+        if (ip_hdr != NULL) {
+                for (i = 0; i < num_sh_entries; i++) {
+                        if (ip_hdr->src_addr == sh_entries[i].ip.s_addr) {
+                                meta->destination = sh_entries[i].destination;
+                                break;
+                        }
+                }
+                if (i == num_sh_entries) {
+                        meta->destination = destination;
+                }
+        } else {
+                meta->destination = destination;
+        }
+
         meta->action = ONVM_NF_ACTION_TONF;
-        meta->destination = destination;
+        return 0;
 
         // if (onvm_pkt_swap_src_mac_addr(pkt, meta->destination, ports) != 0) {
         //         RTE_LOG(INFO, APP, "ERROR: Failed to swap src mac with dst mac!\n");
         // }
-        return 0;
 }
 
 int

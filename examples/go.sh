@@ -6,7 +6,7 @@ NF_DIR=${PWD##*/}
 
 if [ ! -f ../start_nf.sh ]; then
   echo "ERROR: The ./go.sh script can only be used from the NF folder"
-  echo "If running from other directory use examples/start_nf.sh"
+  echo "If running from another directory use examples/start_nf.sh"
   exit 1
 fi
 
@@ -37,6 +37,12 @@ while [[ "$#" -gt 0 ]]; do
             ;;
     esac
 done
+
+# # Check if destination argument is provided
+# if ! echo "$ADDITIONAL_ARGS" | grep -q "\-d"; then
+#     echo "ERROR: Destination flag -d is required."
+#     exit 1
+# fi
 
 # Run start_nf.sh with the provided arguments
 ../start_nf.sh "$NF_DIR" $ADDITIONAL_ARGS
