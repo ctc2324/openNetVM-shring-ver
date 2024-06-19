@@ -47,6 +47,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 
 #include <rte_common.h>
 #include <rte_cycles.h>
@@ -80,6 +81,13 @@ struct flow_stats {
         int is_active;
 };
 
+static uint32_t destination;
+static int num_sh_entries = 0;
+static struct {
+        struct in_addr ip;
+        uint32_t destination;
+} sh_entries[10];
+
 struct state_info *state_info;
 
 /*
@@ -93,6 +101,7 @@ usage(const char *progname) {
         printf("Flags:\n");
         printf(" - `-d <destination_id>`: Service ID to send packets to`\n");
         printf(" - `-p <print_delay>`:  Number of seconds between each print (default is 5)\n");
+        printf(" - `-sh <ip1> <nf1> <ip2> <nf2> ...`: specify source IP and destination NF pairs\n");
 }
 
 /*
@@ -101,25 +110,48 @@ usage(const char *progname) {
 static int
 parse_app_args(int argc, char *argv[], const char *progname) {
         int c, dst_flag = 0;
+        char *endptr;
 
-        while ((c = getopt(argc, argv, "d:p:")) != -1) {
+        while ((c = getopt(argc, argv, "d:p:s:")) != -1) {
                 switch (c) {
                         case 'd':
-                                state_info->destination = strtoul(optarg, NULL, 10);
+                                destination = strtoul(optarg, NULL, 10);
                                 dst_flag = 1;
-                                RTE_LOG(INFO, APP, "Sending packets to service ID %d\n", state_info->destination);
                                 break;
                         case 'p':
-                                state_info->print_delay = strtoul(optarg, NULL, 10);
+                                break;
+                        case 's':
+                                while (optind < argc && argv[optind][0] != '-') {
+                                        if (num_sh_entries >= 10) {
+                                                RTE_LOG(INFO, APP, "Too many -sh entries, maximum is 10\n");
+                                                return -1;
+                                        }
+                                        if (inet_aton(argv[optind], &sh_entries[num_sh_entries].ip) == 0) {
+                                                RTE_LOG(INFO, APP, "Invalid IP address %s\n", argv[optind]);
+                                                return -1;
+                                        }
+                                        optind++;
+                                        if (optind < argc) {
+                                                sh_entries[num_sh_entries].destination = strtoul(argv[optind], &endptr, 10);
+                                                if (*endptr != '\0') {
+                                                        RTE_LOG(INFO, APP, "Invalid NF destination %s\n", argv[optind]);
+                                                        return -1;
+                                                }
+                                                num_sh_entries++;
+                                        }
+                                        optind++;
+                                }
                                 break;
                         case '?':
                                 usage(progname);
                                 if (optopt == 'd')
-                                        RTE_LOG(INFO, APP, "Option -%c requires an argument\n", optopt);
+                                        RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
                                 else if (optopt == 'p')
-                                        RTE_LOG(INFO, APP, "Option -%c requires an argument\n", optopt);
+                                        RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
+                                else if (isprint(optopt))
+                                        RTE_LOG(INFO, APP, "Unknown option `-%c'.\n", optopt);
                                 else
-                                        RTE_LOG(INFO, APP, "Unknown option character\n");
+                                        RTE_LOG(INFO, APP, "Unknown option character `\\x%x'.\n", optopt);
                                 return -1;
                         default:
                                 usage(progname);
@@ -127,8 +159,8 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                 }
         }
 
-        if (!dst_flag) {
-                RTE_LOG(INFO, APP, "Flow Tracker NF requires a destination NF service ID with the -d flag \n");
+        if (!dst_flag && num_sh_entries == 0) {
+                RTE_LOG(INFO, APP, "Simple Forward NF requires destination flag -d or -sh.\n");
                 return -1;
         }
 
@@ -291,17 +323,30 @@ callback_handler(__attribute__((unused)) struct onvm_nf_local_ctx *nf_local_ctx)
 static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                __attribute__((unused)) struct onvm_nf_local_ctx *nf_local_ctx) {
-        if (!onvm_pkt_is_ipv4(pkt)) {
-                meta->destination = state_info->destination;
-                meta->action = ONVM_NF_ACTION_TONF;
-                return 0;
+        
+        struct rte_ipv4_hdr *ip_hdr;
+        int i;
+
+
+        ip_hdr = onvm_pkt_ipv4_hdr(pkt);
+        if (ip_hdr != NULL) {
+                for (i = 0; i < num_sh_entries; i++) {
+                        if (ip_hdr->src_addr == sh_entries[i].ip.s_addr) {
+                                meta->destination = sh_entries[i].destination;
+                                break;
+                        }
+                }
+                if (i == num_sh_entries) {
+                        meta->destination = destination;
+                }
+        } else {
+                meta->destination = destination;
         }
 
         if (table_lookup_entry(pkt, state_info) < 0) {
                 printf("Packet could not be identified or processed\n");
         }
 
-        meta->destination = state_info->destination;
         meta->action = ONVM_NF_ACTION_TONF;
 
         return 0;

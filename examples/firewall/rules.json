@@ -1,12 +1,23 @@
 {
-    "allowSpecificIP": {
+    "ip1": {
         "ip": "192.168.1.100",
         "depth": 32,
-        "action": 1
+        "action": 0
     },
-    "blockSpecificIP": {
+    "ip2": {
         "ip": "192.168.1.101",
         "depth": 32,
         "action": 0
+    },
+    "ip3": {
+        "ip": "192.168.1.102",
+        "depth": 32,
+        "action": 0
+    },
+    "ip4": {
+        "ip": "192.168.1.103",
+        "depth": 32,
+        "action": 0
     }
+
 }

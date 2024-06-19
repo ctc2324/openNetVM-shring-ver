@@ -52,6 +52,7 @@
 #include <getopt.h>
 #include <string.h>
 #include "cJSON.h"
+#include <arpa/inet.h>
 
 #include <rte_common.h>
 #include <rte_mbuf.h>
@@ -72,6 +73,11 @@
 static uint16_t destination;
 static int debug = 0;
 char *rule_file = NULL;
+static int num_sh_entries = 0;
+static struct {
+        struct in_addr ip;
+        uint32_t destination;
+} sh_entries[10];
 
 /* Structs that contain information to setup LPM and its rules */
 struct lpm_request *firewall_req;
@@ -112,6 +118,7 @@ usage(const char *progname) {
         printf(" - `-b`: Debug mode: Print each incoming packets source/destination"
                " IP address as well as its drop/forward status\n");
         printf(" - `-f`: Path to a JSON file containing firewall rules; See README for example usage\n");
+        printf(" - `-sh <ip1> <nf1> <ip2> <nf2> ...`: specify source IP and destination NF pairs\n");
 }
 
 /*
@@ -120,8 +127,9 @@ usage(const char *progname) {
 static int
 parse_app_args(int argc, char *argv[], const char *progname) {
         int c, dst_flag = 0, rules_init = 0;
-
-        while ((c = getopt(argc, argv, "d:f:p:b")) != -1) {
+        char *endptr;
+        printf("gogo\n");
+        while ((c = getopt(argc, argv, "d:f:p:b:s:")) != -1) {
                 switch (c) {
                         case 'd':
                                 destination = strtoul(optarg, NULL, 10);
@@ -129,7 +137,28 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                                 break;
                         case 'p':
                                 print_delay = strtoul(optarg, NULL, 10);
-                                RTE_LOG(INFO, APP, "Print delay = %d\n", print_delay);
+                                break;
+                        case 's':
+                                while (optind < argc && argv[optind][0] != '-') {
+                                        if (num_sh_entries >= 10) {
+                                                RTE_LOG(INFO, APP, "Too many -sh entries, maximum is 10\n");
+                                                return -1;
+                                        }
+                                        if (inet_aton(argv[optind], &sh_entries[num_sh_entries].ip) == 0) {
+                                                RTE_LOG(INFO, APP, "Invalid IP address %s\n", argv[optind]);
+                                                return -1;
+                                        }
+                                        optind++;
+                                        if (optind < argc) {
+                                                sh_entries[num_sh_entries].destination = strtoul(argv[optind], &endptr, 10);
+                                                if (*endptr != '\0') {
+                                                        RTE_LOG(INFO, APP, "Invalid NF destination %s\n", argv[optind]);
+                                                        return -1;
+                                                }
+                                                num_sh_entries++;
+                                        }
+                                        optind++;
+                                }
                                 break;
                         case 'f':
                                 rule_file = strdup(optarg);
@@ -142,11 +171,9 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                                 break;
                         case '?':
                                 usage(progname);
-                                if (optopt == 'p')
-                                        RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
                                 if (optopt == 'd')
                                         RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
-                                if (optopt == 'f')
+                                else if (optopt == 'p')
                                         RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
                                 else if (isprint(optopt))
                                         RTE_LOG(INFO, APP, "Unknown option `-%c'.\n", optopt);
@@ -159,8 +186,8 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                 }
         }
 
-        if (!dst_flag) {
-                RTE_LOG(INFO, APP, "Firewall NF requires a destination NF with the -d flag.\n");
+        if (!dst_flag && num_sh_entries == 0) {
+                RTE_LOG(INFO, APP, "Simple Forward NF requires destination flag -d or -sh.\n");
                 return -1;
         }
         if (!debug) {
@@ -170,6 +197,7 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                 RTE_LOG(INFO, APP, "Please specify a rules JSON file with -f FILE_NAME\n");
                 return -1;
         }
+
         return optind;
 }
 
@@ -198,11 +226,13 @@ static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                __attribute__((unused)) struct onvm_nf_local_ctx *nf_local_ctx) {
         struct rte_ipv4_hdr *ipv4_hdr;
+        struct rte_ipv4_hdr *ip_hdr;
         static uint32_t counter = 0;
         int ret;
         uint32_t rule = 0;
         uint32_t track_ip = 0;
         char ip_string[16];
+        int i;
 
         if (++counter == print_delay) {
                 do_stats_display();
@@ -232,8 +262,20 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
 
         switch (rule) {
                 case 0:
-                        meta->action = ONVM_NF_ACTION_TONF;
-                        meta->destination = destination;
+                        ip_hdr = onvm_pkt_ipv4_hdr(pkt);
+                        if (ip_hdr != NULL) {
+                                for (i = 0; i < num_sh_entries; i++) {
+                                        if (ip_hdr->src_addr == sh_entries[i].ip.s_addr) {
+                                                meta->destination = sh_entries[i].destination;
+                                                break;
+                                        }
+                                }
+                                if (i == num_sh_entries) {
+                                        meta->destination = destination;
+                                }
+                        } else {
+                                meta->destination = destination;
+                        }
                         stats.pkt_accept++;
                         if (debug) RTE_LOG(INFO, APP, "Packet from source IP %s has been accepted\n", ip_string);
                         break;

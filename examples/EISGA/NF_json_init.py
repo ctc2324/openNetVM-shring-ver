@@ -1,11 +1,12 @@
 import json
 
 vnf_mapping = {
-    0: "aes_decrypt",
-    1: "flow_tracker",
-    2: "l3fwd",
-    3: "simple_forward",
-    4: "basic_monitor"
+    0: "basic_monitor",
+    1: "simple_forward",
+    2: "flow_tracker",
+    3: "firewall",
+    4: "nat",
+    5: "l3fwd"
 }
 
 with open("network.txt", "r") as file:
@@ -56,12 +57,16 @@ for line in lines:
 
         if len(next_nodes) == 1:
             parameters = f"{param_first} -d {next_nodes[0][14]}"
+            if len(next_nodes[0]) > 15:
+                parameters += f"{next_nodes[0][15]}"
         elif len(next_nodes) > 1:
             parameters = f"{param_first} -s {' '.join(map(str, next_nodes))}"
         else:
             parameters = str(param_first)
     
     # Append to the corresponding VNF list
+    if vnf_name == "firewall":
+        parameters += " -f rules.json"
     vnf_lists[vnf_name].append({"parameters": parameters})
 
 # Convert VNF lists to JSON format, but skip empty lists

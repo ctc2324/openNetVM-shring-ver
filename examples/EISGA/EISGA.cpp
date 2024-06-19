@@ -5,7 +5,7 @@
 #include <math.h>
 
 // Define constants for maximum length, VNF count, top VNF count, SFC count, maximum sharing count, and maximum nodes
-#define MAX_LENGTH 3
+#define MAX_LENGTH 4
 #define SFC_COUNT 3
 #define MAX_SHARING_COUNT 3
 #define MAX_NODES 1000
@@ -28,22 +28,22 @@ typedef struct SFCNode {
     float reliability;
     int cen;
     int SFC_cnt;
+    int NF;
 } SFCNode;
 
 
 
 // Array to store all SFC nodes
 SFCNode* allNodes[MAX_NODES];
+SFCNode* allNodesNF[MAX_NODES];
 int nodeCount = 0;
 VNF vnfSet[VNF_COUNT];
 struct SFCNode* removeNode[MAX_NODES];
 int removecnt = 0;
 int recursive_time = 0;
+int NFcnt = 2;
+int originNode = 0;
 
-float shrinkNode(SFCNode* source, SFCNode* destination,float reliability,int shrinkcnt,struct SFCNode* shrinked[]);
-float deleteNode(SFCNode* source, SFCNode* destination, float reliability,int shrinkcnt,struct SFCNode* shrinked[]);
-float nodeDeleting(int source,int v,int Matrix[MAX_NODES][MAX_NODES]) ;
-float nodeShrinking(int source,int v,int Matrix[MAX_NODES][MAX_NODES]) ;
 // Function to read VNF reliability from file
 void readVNFs(const char *filename, VNF vnfSet[]) {
     FILE *file = fopen(filename, "r");
@@ -167,6 +167,7 @@ void initSFG() {
         }
     }
     DestinationNode->next[0] = NULL;
+    DestinationNode->NF = NFcnt;
     allNodes[nodeCount++] = SourceNode;
     allNodes[nodeCount++] = DestinationNode;
 }
@@ -177,6 +178,8 @@ SFCNode* createSFCNode(int vnfID,bool head,int SFC_cnt) {
     newNode->vnfID = vnfID;
     newNode->reliability = vnfSet[vnfID].reliability;
     newNode->SFC_cnt = SFC_cnt;
+    newNode->NF = NFcnt;
+    NFcnt++;
 
     for (int i = 0; i < 100; i++) {
         newNode->next[i] = NULL;
@@ -318,11 +321,13 @@ void removeUnuseNode() {
     }
 }
 
-int checkRemove(SFCNode* next){
-    for(int i = 0;i < removecnt;i++){
-        if(next == removeNode[i])return 1;
+void findNodeNF(SFCNode* node,int nf){
+    for(int i = 0;i < originNode;i++){
+        if(allNodesNF[i] = node){
+            allNodesNF[i]->NF = nf;
+            return;
+        }
     }
-    return 0;
 }
 
 
@@ -332,12 +337,13 @@ void updateNextPointers(int top) {
     bool first = false;
     SFCNode* del = NULL;
     
-    for (int i = 0; i < nodeCount; i++) {
+    for (int i = 0; i < nodeCount - 2; i++) {
         
         if (allNodes[i]->vnfID == top) {
             if(first){
                 sharingNode->next[shareCnt] = allNodes[i]->next[0];
                 removeNode[removecnt] = allNodes[i];
+                allNodes[i]->NF = sharingNode->NF;
                 removecnt++;
                 SFCNode* del = allNodes[i]; 
                 removeSharedNode(i);
@@ -353,7 +359,8 @@ void updateNextPointers(int top) {
         } 
         else if (first && allNodes[i]->next[0]) {
             for (int j = 0;j < MAX_NODES && allNodes[i]->next[j] != NULL; j++) {
-                if (checkRemove(allNodes[i]->next[j]) == 1) {
+                if (allNodes[i]->next[j]->vnfID == sharingNode->vnfID) {
+                    printf("##%p,%p\n",(void*)sharingNode,(void*)allNodes[i]->next[j]);
                     allNodes[i]->next[j] = sharingNode;
                 }
                 
@@ -374,7 +381,7 @@ void updateNextPointers(int top) {
 void printNodeInfo() {
     printf("Node Information:\n");
     for (int i = 0; i < nodeCount; i++) {
-        printf("Node %d-Address: %p, vnfID: %d,reliability: %f sfccnt = %d,next: ", i, (void*)allNodes[i], allNodes[i]->vnfID, allNodes[i]->reliability,allNodes[i]->SFC_cnt);
+        printf("Node %d-Address: %p, vnfID: %d,reliability: %f sfccnt = %d,nf = %d,next: ", i, (void*)allNodes[i], allNodes[i]->vnfID, allNodes[i]->reliability,allNodes[i]->SFC_cnt,allNodes[i]->NF);
         for (int j = 0; j < MAX_NODES && allNodes[i]->next[j]; j++) {
             printf("%p", (void*)allNodes[i]->next[j]);
             if (allNodes[i]->next[j + 1] != NULL) {
@@ -382,6 +389,29 @@ void printNodeInfo() {
             }
         }
         printf("\n");
+    }
+}
+
+// Function to print node information from allNodes array
+void printNFNodeInfo(int cnt) {
+    printf("Node Information:\n");
+    printf("%d\n",cnt);
+    for (int i = 0; i < cnt; i++) {
+        printf("Node %d-Address: %p, vnfID: %d,reliability: %f sfccnt = %d,nf = %d,next: ", i, (void*)allNodesNF[i], allNodesNF[i]->vnfID, allNodesNF[i]->reliability,allNodesNF[i]->SFC_cnt,allNodesNF[i]->NF);
+        for (int j = 0; j < MAX_NODES && allNodesNF[i]->next[j]; j++) {
+            printf("%p", (void*)allNodesNF[i]->next[j]);
+            if (allNodesNF[i]->next[j + 1] != NULL) {
+                printf(", ");
+            }
+        }
+        printf("\n");
+    }
+}
+
+void copynode(){
+    for(int i = 0;i < nodeCount;i++){
+        allNodesNF[i] = allNodes[i];
+        printf("%d\n",allNodesNF[i]->vnfID);
     }
 }
 
@@ -541,22 +571,13 @@ void Backup_node(int saving){
     }
 }
 
-int findnext(int NFcnt[],SFCNode* next){
-    for(int i = 0;i < nodeCount;i++){
-        if(next == allNodes[i]){
+int findnext(SFCNode* next,int cnt){
+    for(int i = 0;i < cnt;i++){
+        if(next == allNodesNF[i]){
             return i;
         }
     }
     return -1;
-}
-
-int findremove(SFCNode* next){
-    for(int i = 0;i < nodeCount;i++){
-        if(next == removeNode[i]){
-            return i;
-        }
-    }
-    return 0;
 }
 
 
@@ -587,49 +608,33 @@ int main() {
     // Print node information before sharing
     printf("Before sharing:\n");
     printNodeInfo();
-    
-
+    copynode();
     // Print node information after sharing
     for(int i = 0;i < TOP_VNF_COUNT && TOP_VNF_COUNT < VNF_COUNT ;i++){
-        printf("After %d node sharing:\n",i+1);
+        printf("After %d node sharing %d:\n",i+1,vnfSet[i].id);
         updateNextPointers(vnfSet[i].id);
         printNodeInfo();
         printf("Node count is %d, save %d Node by instance sharing\n",nodeCount,originNode - nodeCount);
         if(originNode - nodeCount == 0){
             TOP_VNF_COUNT++;
         }
+        printf("---------------------------------------\n");
     }
-    removeDuplicateNext();
-    removeUnuseNode();
+    //removeDuplicateNext();
+    //removeUnuseNode();
     printNodeInfo();
-
-    int n = 2;
-    int NFcnt[nodeCount];
-    for(int i = 0;i < nodeCount;i++){
-       
-        NFcnt[i] = n;
-        n++;
-         
-        printf("%d\n",NFcnt[i]);
-    }
+    printf("******************************************\n");
+    printNFNodeInfo(originNode);
+    printf("******************************************\n");
 
     int nextIndex = -1;
 
     FILE *network_file = fopen("network.txt", "w");
     for (int i = 0; i < nodeCount; i++) {
-        fprintf(network_file,"%d,%d,",NFcnt[i],allNodes[i]->vnfID);
+        fprintf(network_file,"%d,%d,",allNodes[i]->NF,allNodes[i]->vnfID);
         for (int j = 0; j < MAX_NODES && allNodes[i]->next[j]; j++) {
-            nextIndex = findnext(NFcnt,allNodes[i]->next[j]);
-            int nextsfc = -1;
-            if(nextIndex == -1){
-                nextIndex = findremove(allNodes[i]->next[j]);
-                nextsfc = removeNode[nextIndex]->SFC_cnt;
-            }
-            else{
-                nextsfc = allNodes[nextIndex]->SFC_cnt;
-            }
-            printf("##%d,%d\n",nextIndex,i);
-            fprintf(network_file,"192.168.1.10%d %d", nextsfc, NFcnt[nextIndex]);
+            nextIndex = findnext(allNodes[i]->next[j],originNode);
+            fprintf(network_file,"192.168.1.10%d %d", allNodesNF[nextIndex]->SFC_cnt, allNodesNF[nextIndex]->NF);
             if (allNodes[i]->next[j + 1] != NULL) {
                 fprintf(network_file,",");
             }

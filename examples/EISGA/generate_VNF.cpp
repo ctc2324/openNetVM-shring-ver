@@ -4,7 +4,7 @@
 
 #define VNF_COUNT 5
 #define SFC_COUNT 3
-#define MAX_LENGTH 3
+#define MAX_LENGTH 4
 
 // Function to generate random reliability for VNFs
 float generateRandomReliability() {
@@ -42,8 +42,8 @@ void generateSFCs(const char *sfcFile) {
 
     // Generate and write SFCs
     for (int i = 0; i < SFC_COUNT; i++) {
-        int length = rand() % MAX_LENGTH + 1;
-        //int length = MAX_LENGTH;
+        //int length = rand() % MAX_LENGTH + 1;
+        int length = MAX_LENGTH;
         fprintf(sfcOutput, "%d ", length);
 
         int used[VNF_COUNT] = {0}; // Array to track used VNFs
